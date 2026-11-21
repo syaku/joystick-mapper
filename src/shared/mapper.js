@@ -63,22 +63,49 @@ function shape(mag, binding) {
   return applyAntiDeadzone(applySensitivity(mag, binding.sensitivity ?? 0), binding.antiDeadzone ?? 0);
 }
 
-export function mapInput(input, bindings) {
+// A button-style output, pressed.
+function press(acc, target) {
+  if (target.bit) acc.buttons |= target.bit;
+  else if (target.id === 'lt' || target.id === 'rt') acc[target.id] = 1;
+  else if (target.id === 'lt_rt_both') acc.lt = acc.rt = 1;
+  else if (STICK_PUSH[target.id]) {
+    const [axis, dir] = STICK_PUSH[target.id];
+    acc[axis] += dir;
+  }
+}
+
+export const NO_TILT = Object.freeze(new Set());
+
+// The axes whose tilt press is down, given those that were: pressed once tilted to `on`,
+// let go once back below `off`. Kept by the caller between inputs, since a tilt between
+// the two stays as it was.
+export function nextTilted(input, bindings, tilted = NO_TILT) {
+  const next = new Set();
+  for (const [controlId, binding] of Object.entries(bindings)) {
+    const tilt = binding.tilt;
+    const raw = input.axes[controlId];
+    if (!tilt || raw === undefined) continue;
+    const amount = Math.abs(applyDeadzone(clamp(raw, -1, 1), binding.deadzone));
+    if (amount >= tilt.on || (tilted.has(controlId) && amount >= tilt.off)) next.add(controlId);
+  }
+  return next;
+}
+
+// `tilted`: the axes whose tilt press is down (see nextTilted).
+export function mapInput(input, bindings, tilted = NO_TILT) {
   const acc = { buttons: 0, lt: 0, rt: 0, lx: 0, ly: 0, rx: 0, ry: 0 };
+
+  for (const controlId of tilted) {
+    const target = TARGET_BY_ID[bindings[controlId]?.tilt?.target];
+    if (target) press(acc, target);
+  }
 
   for (const [controlId, binding] of Object.entries(bindings)) {
     const target = TARGET_BY_ID[binding.target];
     if (!target) continue;
 
     if (controlKind(controlId) === 'button') {
-      if (!input.buttons[controlId]) continue;
-      if (target.bit) acc.buttons |= target.bit;
-      else if (target.id === 'lt' || target.id === 'rt') acc[target.id] = 1;
-      else if (target.id === 'lt_rt_both') acc.lt = acc.rt = 1;
-      else if (STICK_PUSH[target.id]) {
-        const [axis, dir] = STICK_PUSH[target.id];
-        acc[axis] += dir;
-      }
+      if (input.buttons[controlId]) press(acc, target);
       continue;
     }
 

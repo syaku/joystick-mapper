@@ -174,6 +174,14 @@ export const MAX_SENSITIVITY = 1;
 export const DEFAULT_PRESS_POINT = 0.5;
 export const MIN_PRESS_POINT = 0.05;
 export const MAX_PRESS_POINT = 0.95;
+// Tilt press: an extra Xbox button held while an axis is tilted far enough (a high-G turn
+// in Ace Combat on a hard pull). It presses at `on` and lets go only below `off`, so a
+// stick held near the line doesn't flicker it. Both are past the deadzone, like the
+// press point.
+export const DEFAULT_TILT_ON = 0.9;
+export const DEFAULT_TILT_OFF = 0.8;
+export const MIN_TILT = 0.05;
+export const MAX_TILT = 1;
 
 // Bindings are sparse ({ [controlId]: binding }): a stick's controls vary, and a
 // profile keeps working on another stick for the controls they share.
@@ -211,7 +219,21 @@ export function sanitizeBinding(controlId, raw) {
   }
   const press = typeof raw.pressPoint === 'number' ? Math.min(MAX_PRESS_POINT, Math.max(MIN_PRESS_POINT, raw.pressPoint)) : NaN;
   if (def?.digital && Number.isFinite(press) && press !== DEFAULT_PRESS_POINT) clean.pressPoint = press;
+  const tilt = sanitizeTilt(raw.tilt);
+  if (tilt) clean.tilt = tilt;
   return clean;
+}
+
+const clampOr = (raw, lo, hi, fallback) => (typeof raw === 'number' && Number.isFinite(raw) ? Math.min(hi, Math.max(lo, raw)) : fallback);
+
+// { target, on, off } with any button-style output as the target and off never above on,
+// or null when there is no tilt press.
+function sanitizeTilt(raw) {
+  const def = TARGET_BY_ID[raw?.target];
+  if (!def || !def.accepts.includes('button')) return null;
+  const on = clampOr(raw.on, MIN_TILT, MAX_TILT, DEFAULT_TILT_ON);
+  const off = clampOr(raw.off, MIN_TILT, on, Math.min(DEFAULT_TILT_OFF, on));
+  return { target: def.id, on, off };
 }
 
 // Accepts anything (read from disk, imported, a preset) and returns valid bindings;

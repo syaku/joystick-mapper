@@ -33,7 +33,7 @@ import { logicalMax, sharedUsages } from '../src/main/hidp.js';
 import { XboxPadParser, isEliteProduct } from '../src/main/xinput.js';
 import { GAMES } from '../src/shared/games.js';
 import { ALTERNATES, LAYOUTS } from '../src/renderer/layout.js';
-import { NEUTRAL_INPUT, mapInput } from '../src/shared/mapper.js';
+import { NEUTRAL_INPUT, NO_TILT, mapInput, nextTilted } from '../src/shared/mapper.js';
 import { PRESETS } from '../src/shared/presets.js';
 import { MIN_PRESS_MS, pressHolder } from '../src/shared/pulses.js';
 import { isNewer, parseVersion, updateFromRelease } from '../src/shared/updates.js';
@@ -2715,6 +2715,61 @@ test('a press point is clamped, dropped at halfway, and only kept for button-sty
   // It survives a save / export round trip.
   const p = { name: 'P', bindings: bindingsWith({ rz: { target: 'lb_rb', pressPoint: 0.3 } }) };
   assert.equal(fromExport(toExport(p)).bindings.rz.pressPoint, 0.3);
+});
+
+test('a tilt press holds an extra button from its on point until the axis falls below its off point', () => {
+  const bindings = bindingsWith({ y: { target: 'ls_y', deadzone: 0, tilt: { target: 'lt_rt_both', on: 0.9, off: 0.7 } } });
+  let tilted = NO_TILT;
+  const step = (v) => {
+    tilted = nextTilted(input({}, { y: v }), bindings, tilted);
+    const out = mapInput(input({}, { y: v }), bindings, tilted);
+    return out.lt === 255 && out.rt === 255;
+  };
+  assert.equal(step(0.85), false);
+  assert.equal(step(0.9), true);
+  // Between off and on it stays as it was, so a hand shaking at the line doesn't flicker it.
+  assert.equal(step(0.8), true);
+  assert.equal(step(0.89), true);
+  assert.equal(step(0.7), true);
+  assert.equal(step(0.69), false);
+  assert.equal(step(0.8), false);
+  assert.equal(step(0.89), false);
+  // Either way counts, and the stick itself still moves.
+  assert.equal(step(-0.95), true);
+  assert.equal(mapInput(input({}, { y: -0.95 }), bindings, tilted).ly, Math.round(-0.95 * 32767));
+});
+
+test('a tilt press is measured past the deadzone and can press any button-style output', () => {
+  const tilt = (target, deadzone, v) => {
+    const bindings = bindingsWith({ x: { target: 'ls_x', deadzone, tilt: { target, on: 0.5, off: 0.4 } } });
+    const at = input({}, { x: v });
+    return mapInput(at, bindings, nextTilted(at, bindings));
+  };
+  assert.equal(tilt('a', 0.2, 0.55).buttons, 0); // (0.55 - 0.2) / 0.8 < 0.5
+  assert.equal(tilt('a', 0.2, 0.61).buttons, XUSB.A);
+  assert.equal(tilt('rb', 0, 0.6).buttons, XUSB.RIGHT_SHOULDER);
+  assert.equal(tilt('rt', 0, 0.6).rt, 255);
+  assert.equal(tilt('rs_up', 0, 0.6).ry, 32767);
+  // An axis nothing is reporting presses nothing.
+  const bindings = bindingsWith({ x: { target: 'ls_x', deadzone: 0, tilt: { target: 'a', on: 0.5, off: 0.4 } } });
+  assert.equal(nextTilted(input({}, {}), bindings).size, 0);
+});
+
+test('a tilt press is kept only with a button-style target, clamped, and with off never above on', () => {
+  assert.deepEqual(sanitizeBinding('y', { target: 'ls_y', tilt: { target: 'lt_rt_both', on: 0.85, off: 0.6 } }).tilt, {
+    target: 'lt_rt_both',
+    on: 0.85,
+    off: 0.6,
+  });
+  assert.deepEqual(sanitizeBinding('y', { target: 'ls_y', tilt: { target: 'a' } }).tilt, { target: 'a', on: 0.9, off: 0.8 });
+  assert.deepEqual(sanitizeBinding('y', { target: 'ls_y', tilt: { target: 'a', on: 0.5, off: 0.7 } }).tilt, { target: 'a', on: 0.5, off: 0.5 });
+  assert.deepEqual(sanitizeBinding('y', { target: 'ls_y', tilt: { target: 'a', on: 2, off: 0 } }).tilt, { target: 'a', on: 1, off: 0.05 });
+  for (const tilt of [null, {}, { target: 'ls_x' }, { target: 'nope' }]) {
+    assert.equal('tilt' in sanitizeBinding('y', { target: 'ls_y', tilt }), false, JSON.stringify(tilt));
+  }
+  // It survives a save / export round trip.
+  const p = { name: 'P', bindings: bindingsWith({ y: { target: 'ls_y', tilt: { target: 'lt_rt_both', on: 0.95, off: 0.75 } } }) };
+  assert.deepEqual(fromExport(toExport(p)).bindings.y.tilt, { target: 'lt_rt_both', on: 0.95, off: 0.75 });
 });
 
 test('L3 + R3 presses both stick clicks from one button', () => {

@@ -1,10 +1,14 @@
 import {
   DEFAULT_PRESS_POINT,
+  DEFAULT_TILT_OFF,
+  DEFAULT_TILT_ON,
   MAX_ANTI_DEADZONE,
   MAX_DEADZONE,
   MAX_PRESS_POINT,
   MAX_SENSITIVITY,
+  MAX_TILT,
   MIN_PRESS_POINT,
+  MIN_TILT,
   ROLES,
   ROLE_NAMES,
   ROLE_OFF,
@@ -587,7 +591,7 @@ function renderChip(controlId) {
       (setting) => `${setting.name} ${formatResponse(setting, binding[setting.key] ?? setting.initial ?? 0)}`,
     );
     dz.disabled = !target;
-    dz.classList.toggle('is-tuned', Boolean(binding.sensitivity || binding.antiDeadzone || binding.pressPoint));
+    dz.classList.toggle('is-tuned', Boolean(binding.sensitivity || binding.antiDeadzone || binding.pressPoint || binding.tilt));
     dz.title = values.join(' · ');
     dz.setAttribute('aria-label', `${controlInfo(controlId).name} response: ${values.join(', ').toLowerCase()}`);
   }
@@ -863,6 +867,7 @@ function openDeadzone(controlId) {
     htmlEl('p', 'pop-note', options).textContent =
       `${control.name} presses ${presses} on the Xbox controller instead of moving a stick, so sensitivity and anti-deadzone don't apply.`;
   }
+  tiltPressOptions(options, controlId);
 
   const foot = htmlEl('div', 'pop-foot', popover);
   htmlEl('span', 'pop-hint', foot);
@@ -877,6 +882,71 @@ function openDeadzone(controlId) {
   popover.hidden = false;
   positionPicker(controlId);
   fields.deadzone.slider.focus({ preventScroll: true });
+}
+
+// The tilt press, under the response sliders: an Xbox button held while the axis is
+// tilted far, with the points where it presses and lets go. Not part of Reset, which puts
+// the response back; None turns it off.
+function tiltPressOptions(parent, controlId) {
+  const tilt = currentBinding(controlId).tilt;
+  const values = { on: tilt?.on ?? DEFAULT_TILT_ON, off: tilt?.off ?? DEFAULT_TILT_OFF };
+
+  const row = htmlEl('label', 'pop-option pop-tilt', parent);
+  htmlEl('span', 'pop-option-name', row).textContent = 'Tilt press';
+  const select = htmlEl('select', 'pop-select', row);
+  select.append(new Option('None', ''));
+  for (const section of TARGET_MENUS.button) {
+    const group = htmlEl('optgroup', null, select);
+    group.label = section.title;
+    for (const id of section.items) group.append(new Option(TARGET_BY_ID[id].name, id));
+  }
+  select.value = tilt?.target ?? '';
+
+  const sliders = {};
+  for (const [key, name] of [
+    ['on', 'Press at'],
+    ['off', 'Release below'],
+  ]) {
+    const label = htmlEl('label', 'pop-option', parent);
+    htmlEl('span', 'pop-option-name', label).textContent = name;
+    const slider = htmlEl('input', 'slider', label);
+    slider.type = 'range';
+    slider.min = String(MIN_TILT * 100);
+    slider.max = String(MAX_TILT * 100);
+    slider.step = '1';
+    sliders[key] = { slider, value: htmlEl('output', 'pop-option-value', label) };
+  }
+  htmlEl('p', 'pop-note', parent).textContent =
+    'Holds this Xbox button while the axis is tilted (either way, past its deadzone) to Press at, until it comes back below Release below.';
+
+  const show = () => {
+    for (const [key, { slider, value }] of Object.entries(sliders)) {
+      slider.value = String(Math.round(values[key] * 100));
+      slider.disabled = !select.value;
+      value.textContent = `${Math.round(values[key] * 100)}%`;
+    }
+  };
+  let timer = null;
+  const save = (delay) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => updateBinding(controlId, { tilt: select.value ? { target: select.value, ...values } : null }), delay);
+  };
+  select.addEventListener('change', () => {
+    show();
+    save(0);
+  });
+  sliders.on.slider.addEventListener('input', () => {
+    values.on = Number(sliders.on.slider.value) / 100;
+    values.off = Math.min(values.off, values.on);
+    show();
+    save(120);
+  });
+  sliders.off.slider.addEventListener('input', () => {
+    values.off = Math.min(Number(sliders.off.slider.value) / 100, values.on);
+    show();
+    save(120);
+  });
+  show();
 }
 
 // The button the open popover hangs off: the DZ/Sens button, or the mapping chip.

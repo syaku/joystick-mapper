@@ -34,7 +34,7 @@
 import { BLOCKED_HELP_URL, BLOCKED_MESSAGE } from '../shared/blocked.js';
 import { ROLES, sanitizeBinding, emptyBindings, rolePrefix } from '../shared/controls.js';
 import { XBOX_ELITE_PAD, XBOX_LAYOUT, XBOX_PAD, assignRoles, canVibrate, changeRole, describeDevice, mergeInputs } from '../shared/devices.js';
-import { NEUTRAL_INPUT, mapInput } from '../shared/mapper.js';
+import { NEUTRAL_INPUT, NO_TILT, mapInput, nextTilted } from '../shared/mapper.js';
 import { PRESETS } from '../shared/presets.js';
 import {
   addProfile,
@@ -915,6 +915,7 @@ export function createMockApi() {
   window.addEventListener('blur', () => held.clear());
 
   let last = performance.now();
+  let tilted = NO_TILT;
   function tick(now) {
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
@@ -948,7 +949,8 @@ export function createMockApi() {
       states.push(state);
     }
     const input = mergeInputs(states);
-    const output = mapInput(emulating() ? input : NEUTRAL_INPUT, working);
+    tilted = emulating() ? nextTilted(input, working, tilted) : NO_TILT;
+    const output = mapInput(emulating() ? input : NEUTRAL_INPUT, working, tilted);
     frameListeners.forEach((cb) => cb({ input, output }));
     requestAnimationFrame(tick);
   }

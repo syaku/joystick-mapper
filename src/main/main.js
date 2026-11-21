@@ -16,7 +16,7 @@ import { createVirtualPad, VIGEM_DOWNLOAD_URL } from './vigem.js';
 import { readJson, writeJsonAtomic } from './store.js';
 import { ROLES, ROLE_OFF, emptyBindings, sanitizeBinding } from '../shared/controls.js';
 import { canVibrate, changeRole, isCentered } from '../shared/devices.js';
-import { NEUTRAL_INPUT, NEUTRAL_OUTPUT, mapInput, sameOutput } from '../shared/mapper.js';
+import { NEUTRAL_INPUT, NEUTRAL_OUTPUT, NO_TILT, mapInput, nextTilted, sameOutput } from '../shared/mapper.js';
 import { PRESETS } from '../shared/presets.js';
 import { BLOCKED_HELP_URL } from '../shared/blocked.js';
 import { pressHolder } from '../shared/pulses.js';
@@ -87,6 +87,7 @@ let input = NEUTRAL_INPUT; // the same, with very short presses held long enough
 const holdPresses = pressHolder();
 let pressTimer = null;
 let output = NEUTRAL_OUTPUT;
+let tilted = NO_TILT; // axes whose tilt press is down
 let frameDirty = true;
 
 const profilesFile = () => path.join(app.getPath('userData'), 'profiles.json');
@@ -216,7 +217,8 @@ function readInput() {
 // Recompute the Xbox report and send it to the driver only when it changes.
 function pump() {
   const live = emulating() && joystick.status.state === 'connected';
-  const next = live ? mapInput(input, working) : NEUTRAL_OUTPUT;
+  tilted = live ? nextTilted(input, working, tilted) : NO_TILT;
+  const next = live ? mapInput(input, working, tilted) : NEUTRAL_OUTPUT;
   if (!sameOutput(next, output)) {
     output = next;
     pad.submit(output);
